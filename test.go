@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	netv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	client "github.com/yuvalk/NetworkSecurityManager/pkg/client"
