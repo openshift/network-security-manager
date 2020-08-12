@@ -76,6 +76,47 @@ func PolicyPrinter(policy netv1.NetworkPolicy) {
 	}
 }
 
+/*
+#id(order)	From				to				action
+	IpBlock	podSelector	namespaceSelector	ports	ipBlock	podSelector	namespaceSelector	ports
+1	172.17.1.0/24			tcp/6379		role=db AND namespace=default			reject
+2	172.17.0.0/16			tcp/6379		role=db AND namespace=default			allow
+3		role=frontend AND namespace=default		tcp/6379		role=db AND namespace=default			allow
+4			project=myproject	tcp/6379		role=db AND namespace=default			allow
+5		role=db AND namespace=default			10.0.0.0/24			tcp/5978	allow
+6	*	*	*	*	*	*	*	*	reject
+*/
+
+func IngressTranslator(ingress netv1.NetworkPolicyIngressRule, policy netv1.NetworkPolicy) {
+	for _, from := range ingress.From {
+		if from.IPBlock != nil {
+			ipblock := *from.IPBlock
+			for _, except := range ipblock.Except {
+				fmt.Println("from:", except, "port:", ingress.Ports, "to:", policy.Spec.PodSelector, "action: reject")
+			}
+			fmt.Println("from:", ipblock.CIDR, "port:", ingress.Ports, "to:", policy.Spec.PodSelector, "action: allow")
+		}
+
+		if from.PodSelector != nil {
+			podselector := *from.PodSelector
+			fmt.Println("from:", podselector, "ports:", ingress.Ports, "to:", policy.Spec.PodSelector, "action: allow")
+		}
+
+		if from.NamespaceSelector != nil {
+			namespaceselector := *from.NamespaceSelector
+			fmt.Println("from:", namespaceselector, "ports:", ingress.Ports, "to:", policy.Spec.PodSelector, "action: allow")
+		}
+	}
+}
+
+func PolicyRulesTranslator(policy netv1.NetworkPolicy) {
+	if contains(policy.Spec.PolicyTypes, "Ingress") {
+		for _, ingress := range policy.Spec.Ingress {
+			IngressTranslator(ingress, policy)
+		}
+	}
+}
+
 func main() {
 	test, err := client.Client.NetworkPolicies("").List(context.Background(), metav1.ListOptions{})
 	if err != nil {
@@ -89,7 +130,8 @@ func main() {
 
 	for i, policy := range test.Items {
 		fmt.Println(i, ":", policy.Name)
-		PolicyPrinter(policy)
+		//PolicyPrinter(policy)
+		PolicyRulesTranslator(policy)
 
 	}
 }
