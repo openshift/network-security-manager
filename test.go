@@ -2,13 +2,24 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 
 	netv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	//	"k8s.io/apimachinery/pkg/labels"
 
 	client "github.com/yuvalk/NetworkSecurityManager/pkg/client"
+
+	"github.com/kataras/tablewriter"
+	"github.com/landoop/tableprinter"
 )
+
+var counter int
+
+var policies []FirewallPolicy
+var firewallPolicy *FirewallPolicy
 
 func contains(arr []netv1.PolicyType, str netv1.PolicyType) bool {
 	for _, a := range arr {
@@ -52,9 +63,7 @@ func PeerPrinter(peer netv1.NetworkPolicyPeer) {
 func PolicyPrinter(policy netv1.NetworkPolicy) {
 	fmt.Println(policy.Name)
 	if contains(policy.Spec.PolicyTypes, "Egress") {
-		// fmt.Println(policy.Spec.Egress)
 		for _, egress := range policy.Spec.Egress {
-			// fmt.Println(egress.Ports)
 			for _, port := range egress.Ports {
 				PortPrinter(port)
 			}
@@ -76,45 +85,135 @@ func PolicyPrinter(policy netv1.NetworkPolicy) {
 	}
 }
 
-/*
-#id(order)	From				to				action
-	IpBlock	podSelector	namespaceSelector	ports	ipBlock	podSelector	namespaceSelector	ports
-1	172.17.1.0/24			tcp/6379		role=db AND namespace=default			reject
-2	172.17.0.0/16			tcp/6379		role=db AND namespace=default			allow
-3		role=frontend AND namespace=default		tcp/6379		role=db AND namespace=default			allow
-4			project=myproject	tcp/6379		role=db AND namespace=default			allow
-5		role=db AND namespace=default			10.0.0.0/24			tcp/5978	allow
-6	*	*	*	*	*	*	*	*	reject
-*/
+func RulePrinter(rule FirewallRule) {
+	/*
+		json, err := json.Marshal(rule)
+		if err != nil {
+			fmt.Println(err)
+		}
+		fmt.Println(string(json))
+		fmt.Println(rule.Order, rule.From, rule.To, rule.Action)
+	*/
+}
 
 func IngressTranslator(ingress netv1.NetworkPolicyIngressRule, policy netv1.NetworkPolicy) {
+	var ingressIPRejectRule FirewallRule
+
 	for _, from := range ingress.From {
 		if from.IPBlock != nil {
 			ipblock := *from.IPBlock
 			for _, except := range ipblock.Except {
-				fmt.Println("from:", except, "port:", ingress.Ports, "to:", policy.Spec.PodSelector, "action: reject")
+				//fmt.Println(i, "from:", except, "port:", ingress.Ports, "to:", policy.Spec.PodSelector, "action: reject")
+				ingressIPRejectRule = FirewallRule{FirewallLocation{CIDR: except, Ports: ingress.Ports}, FirewallLocation{PodSelector: policy.Spec.PodSelector}, "REJECT", counter}
+				firewallPolicy.Rules = append(firewallPolicy.Rules, ingressIPRejectRule)
+				counter++
+				RulePrinter(ingressIPRejectRule)
 			}
-			fmt.Println("from:", ipblock.CIDR, "port:", ingress.Ports, "to:", policy.Spec.PodSelector, "action: allow")
+			//fmt.Println(i, "from:", ipblock.CIDR, "port:", ingress.Ports, "to:", policy.Spec.PodSelector, "action: allow")
+			ingressIPRejectRule = FirewallRule{FirewallLocation{CIDR: ipblock.CIDR, Ports: ingress.Ports}, FirewallLocation{PodSelector: policy.Spec.PodSelector}, "ALLOW", counter}
+			firewallPolicy.Rules = append(firewallPolicy.Rules, ingressIPRejectRule)
+			counter++
+			RulePrinter(ingressIPRejectRule)
 		}
 
 		if from.PodSelector != nil {
 			podselector := *from.PodSelector
-			fmt.Println("from:", podselector, "ports:", ingress.Ports, "to:", policy.Spec.PodSelector, "action: allow")
+			//			fmt.Println(i, "from:", podselector, "ports:", ingress.Ports, "to:", policy.Spec.PodSelector, "action: allow")
+
+			//			fmt.Println(i, "podselector:", podselector.String())
+
+			ingressIPRejectRule = FirewallRule{FirewallLocation{PodSelector: podselector, Ports: ingress.Ports}, FirewallLocation{PodSelector: policy.Spec.PodSelector}, "ALLOW", counter}
+			firewallPolicy.Rules = append(firewallPolicy.Rules, ingressIPRejectRule)
+			counter++
+			RulePrinter(ingressIPRejectRule)
+
+			/*
+				pods, err := client.Client.Pods("").List(context.Background(), metav1.ListOptions{LabelSelector: labels.FormatLabels(podselector.MatchLabels)})
+				if err != nil {
+					fmt.Println("err getting pods", err)
+				}
+				//fmt.Println(i, "Pods: ", pods)
+			*/
 		}
 
 		if from.NamespaceSelector != nil {
 			namespaceselector := *from.NamespaceSelector
-			fmt.Println("from:", namespaceselector, "ports:", ingress.Ports, "to:", policy.Spec.PodSelector, "action: allow")
+			//			fmt.Println(i, "from:", namespaceselector, "ports:", ingress.Ports, "to:", policy.Spec.PodSelector, "action: allow")
+			ingressIPRejectRule = FirewallRule{FirewallLocation{NamespaceSelector: namespaceselector, Ports: ingress.Ports}, FirewallLocation{PodSelector: policy.Spec.PodSelector}, "ALLOW", counter}
+			firewallPolicy.Rules = append(firewallPolicy.Rules, ingressIPRejectRule)
+			counter++
+			RulePrinter(ingressIPRejectRule)
+		}
+	}
+}
+
+func EgressTranslator(egress netv1.NetworkPolicyEgressRule, policy netv1.NetworkPolicy) {
+	var egressRule FirewallRule
+
+	for _, to := range egress.To {
+		if to.IPBlock != nil {
+			ipblock := *to.IPBlock
+			for _, except := range ipblock.Except {
+				egressRule = FirewallRule{FirewallLocation{PodSelector: policy.Spec.PodSelector}, FirewallLocation{CIDR: except, Ports: egress.Ports}, "REJECT", counter}
+				firewallPolicy.Rules = append(firewallPolicy.Rules, egressRule)
+				counter++
+				RulePrinter(egressRule)
+			}
+			egressRule = FirewallRule{FirewallLocation{PodSelector: policy.Spec.PodSelector}, FirewallLocation{CIDR: ipblock.CIDR, Ports: egress.Ports}, "ALLOW", counter}
+			firewallPolicy.Rules = append(firewallPolicy.Rules, egressRule)
+			counter++
+			RulePrinter(egressRule)
+		}
+
+		if to.PodSelector != nil {
+			podselector := *to.PodSelector
+			egressRule = FirewallRule{FirewallLocation{PodSelector: policy.Spec.PodSelector}, FirewallLocation{PodSelector: podselector, Ports: egress.Ports}, "ALLOW", counter}
+			firewallPolicy.Rules = append(firewallPolicy.Rules, egressRule)
+			counter++
+			RulePrinter(egressRule)
+		}
+
+		if to.NamespaceSelector != nil {
+			namespaceselector := *to.NamespaceSelector
+			egressRule = FirewallRule{FirewallLocation{PodSelector: policy.Spec.PodSelector}, FirewallLocation{NamespaceSelector: namespaceselector, Ports: egress.Ports}, "ALLOW", counter}
+			firewallPolicy.Rules = append(firewallPolicy.Rules, egressRule)
+			counter++
+			RulePrinter(egressRule)
 		}
 	}
 }
 
 func PolicyRulesTranslator(policy netv1.NetworkPolicy) {
+	firewallPolicy = new(FirewallPolicy)
+	firewallPolicy.Namespace = policy.ObjectMeta.Namespace
+	firewallPolicy.Name = policy.Name
+
+	counter = 0
+
 	if contains(policy.Spec.PolicyTypes, "Ingress") {
 		for _, ingress := range policy.Spec.Ingress {
 			IngressTranslator(ingress, policy)
 		}
 	}
+	if contains(policy.Spec.PolicyTypes, "Egress") {
+		for _, egress := range policy.Spec.Egress {
+			EgressTranslator(egress, policy)
+		}
+	}
+
+	policies = append(policies, *firewallPolicy)
+
+	printer := tableprinter.New(os.Stderr)
+
+	// Optionally, customize the table, import of the underline 'tablewriter' package is required for that.
+	printer.BorderTop, printer.BorderBottom, printer.BorderLeft, printer.BorderRight = true, true, true, true
+	printer.CenterSeparator = "│"
+	printer.ColumnSeparator = "│"
+	printer.RowSeparator = "─"
+	printer.HeaderBgColor = tablewriter.BgBlackColor
+	printer.HeaderFgColor = tablewriter.FgGreenColor
+
+	printer.Print(firewallPolicy.Rules)
 }
 
 func main() {
@@ -123,15 +222,21 @@ func main() {
 		fmt.Println("err")
 	}
 
-	fmt.Printf("Network Policies: \n")
+	println("Network Policies:")
 	if len(test.Items) == 0 {
 		fmt.Printf("no policies\n")
 	}
 
 	for i, policy := range test.Items {
-		fmt.Println(i, ":", policy.Name)
+		println(i, ":", policy.Name)
 		//PolicyPrinter(policy)
 		PolicyRulesTranslator(policy)
 
 	}
+
+	json, err := json.Marshal(policies)
+	if err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println(string(json))
 }
