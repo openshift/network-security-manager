@@ -15,14 +15,14 @@ import (
 )
 
 // Client defines the client set that will be used for testing
-var Client *ClientSet
+var Client *ClientsSet
 
 func init() {
 	Client = New("")
 }
 
-// ClientSet provides the struct to talk with relevant API
-type ClientSet struct {
+// ClientsSet provides the struct to talk with relevant API
+type ClientsSet struct {
 	client.Client
 	corev1client.CoreV1Interface
 	networkv1client.NetworkingV1Client
@@ -31,7 +31,7 @@ type ClientSet struct {
 }
 
 // New returns a *ClientBuilder with the given kubeconfig.
-func New(kubeconfig string) *ClientSet {
+func New(kubeconfig string) *ClientsSet {
 	var config *rest.Config
 	var err error
 
@@ -56,7 +56,7 @@ func New(kubeconfig string) *ClientSet {
 		panic(err)
 	}
 
-	clientSet := &ClientSet{}
+	clientSet := &ClientsSet{}
 	clientSet.CoreV1Interface = corev1client.NewForConfigOrDie(config)
 	clientSet.AppsV1Interface = appsv1client.NewForConfigOrDie(config)
 	clientSet.NetworkingV1Client = *networkv1client.NewForConfigOrDie(config)

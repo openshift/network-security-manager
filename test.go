@@ -21,6 +21,7 @@ var counter int
 var policies []FirewallPolicy
 var firewallPolicy *FirewallPolicy
 
+// check if arr contains str
 func contains(arr []netv1.PolicyType, str netv1.PolicyType) bool {
 	for _, a := range arr {
 		if a == str {
@@ -30,10 +31,12 @@ func contains(arr []netv1.PolicyType, str netv1.PolicyType) bool {
 	return false
 }
 
+// PortPrinter prints a formattted port definition
 func PortPrinter(port netv1.NetworkPolicyPort) {
 	fmt.Println("Port", *port.Protocol, port.Port)
 }
 
+// IPBlockPrinter prints a formatted IPBlock
 func IPBlockPrinter(ipblock netv1.IPBlock) {
 	fmt.Println("CIDR", ipblock.CIDR)
 	for _, except := range ipblock.Except {
@@ -41,12 +44,14 @@ func IPBlockPrinter(ipblock netv1.IPBlock) {
 	}
 }
 
+// LabelSelectorPrinter prints a formatted labelselector
 func LabelSelectorPrinter(selector metav1.LabelSelector) {
 	for field, value := range selector.MatchLabels {
 		fmt.Println("LabelSelector", field, value)
 	}
 }
 
+// PeerPrinter prints a formatted networkpolicy peer
 func PeerPrinter(peer netv1.NetworkPolicyPeer) {
 	fmt.Println("Peer", peer)
 	if peer.PodSelector != nil {
@@ -60,6 +65,7 @@ func PeerPrinter(peer netv1.NetworkPolicyPeer) {
 	}
 }
 
+// PolicyPrinter prints a formatted networkpolicy
 func PolicyPrinter(policy netv1.NetworkPolicy) {
 	fmt.Println(policy.Name)
 	if contains(policy.Spec.PolicyTypes, "Egress") {
@@ -85,17 +91,17 @@ func PolicyPrinter(policy netv1.NetworkPolicy) {
 	}
 }
 
+// RulePrinter prints a formatted FirewallRule
 func RulePrinter(rule FirewallRule) {
-	/*
-		json, err := json.Marshal(rule)
-		if err != nil {
-			fmt.Println(err)
-		}
-		fmt.Println(string(json))
-		fmt.Println(rule.Order, rule.From, rule.To, rule.Action)
-	*/
+	json, err := json.Marshal(rule)
+	if err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println(string(json))
+	fmt.Println(rule.Order, rule.From, rule.To, rule.Action)
 }
 
+// IngressTranslator translate ingress rule into FirewallRules
 func IngressTranslator(ingress netv1.NetworkPolicyIngressRule, policy netv1.NetworkPolicy) {
 	var ingressIPRejectRule FirewallRule
 
@@ -107,13 +113,11 @@ func IngressTranslator(ingress netv1.NetworkPolicyIngressRule, policy netv1.Netw
 				ingressIPRejectRule = FirewallRule{FirewallLocation{CIDR: except, Ports: ingress.Ports}, FirewallLocation{PodSelector: policy.Spec.PodSelector}, "REJECT", counter}
 				firewallPolicy.Rules = append(firewallPolicy.Rules, ingressIPRejectRule)
 				counter++
-				RulePrinter(ingressIPRejectRule)
 			}
 			//fmt.Println(i, "from:", ipblock.CIDR, "port:", ingress.Ports, "to:", policy.Spec.PodSelector, "action: allow")
 			ingressIPRejectRule = FirewallRule{FirewallLocation{CIDR: ipblock.CIDR, Ports: ingress.Ports}, FirewallLocation{PodSelector: policy.Spec.PodSelector}, "ALLOW", counter}
 			firewallPolicy.Rules = append(firewallPolicy.Rules, ingressIPRejectRule)
 			counter++
-			RulePrinter(ingressIPRejectRule)
 		}
 
 		if from.PodSelector != nil {
@@ -125,15 +129,6 @@ func IngressTranslator(ingress netv1.NetworkPolicyIngressRule, policy netv1.Netw
 			ingressIPRejectRule = FirewallRule{FirewallLocation{PodSelector: podselector, Ports: ingress.Ports}, FirewallLocation{PodSelector: policy.Spec.PodSelector}, "ALLOW", counter}
 			firewallPolicy.Rules = append(firewallPolicy.Rules, ingressIPRejectRule)
 			counter++
-			RulePrinter(ingressIPRejectRule)
-
-			/*
-				pods, err := client.Client.Pods("").List(context.Background(), metav1.ListOptions{LabelSelector: labels.FormatLabels(podselector.MatchLabels)})
-				if err != nil {
-					fmt.Println("err getting pods", err)
-				}
-				//fmt.Println(i, "Pods: ", pods)
-			*/
 		}
 
 		if from.NamespaceSelector != nil {
@@ -142,11 +137,11 @@ func IngressTranslator(ingress netv1.NetworkPolicyIngressRule, policy netv1.Netw
 			ingressIPRejectRule = FirewallRule{FirewallLocation{NamespaceSelector: namespaceselector, Ports: ingress.Ports}, FirewallLocation{PodSelector: policy.Spec.PodSelector}, "ALLOW", counter}
 			firewallPolicy.Rules = append(firewallPolicy.Rules, ingressIPRejectRule)
 			counter++
-			RulePrinter(ingressIPRejectRule)
 		}
 	}
 }
 
+// EgressTranslator translate egress rule into FirewallRules
 func EgressTranslator(egress netv1.NetworkPolicyEgressRule, policy netv1.NetworkPolicy) {
 	var egressRule FirewallRule
 
@@ -157,12 +152,10 @@ func EgressTranslator(egress netv1.NetworkPolicyEgressRule, policy netv1.Network
 				egressRule = FirewallRule{FirewallLocation{PodSelector: policy.Spec.PodSelector}, FirewallLocation{CIDR: except, Ports: egress.Ports}, "REJECT", counter}
 				firewallPolicy.Rules = append(firewallPolicy.Rules, egressRule)
 				counter++
-				RulePrinter(egressRule)
 			}
 			egressRule = FirewallRule{FirewallLocation{PodSelector: policy.Spec.PodSelector}, FirewallLocation{CIDR: ipblock.CIDR, Ports: egress.Ports}, "ALLOW", counter}
 			firewallPolicy.Rules = append(firewallPolicy.Rules, egressRule)
 			counter++
-			RulePrinter(egressRule)
 		}
 
 		if to.PodSelector != nil {
@@ -170,7 +163,6 @@ func EgressTranslator(egress netv1.NetworkPolicyEgressRule, policy netv1.Network
 			egressRule = FirewallRule{FirewallLocation{PodSelector: policy.Spec.PodSelector}, FirewallLocation{PodSelector: podselector, Ports: egress.Ports}, "ALLOW", counter}
 			firewallPolicy.Rules = append(firewallPolicy.Rules, egressRule)
 			counter++
-			RulePrinter(egressRule)
 		}
 
 		if to.NamespaceSelector != nil {
@@ -178,11 +170,11 @@ func EgressTranslator(egress netv1.NetworkPolicyEgressRule, policy netv1.Network
 			egressRule = FirewallRule{FirewallLocation{PodSelector: policy.Spec.PodSelector}, FirewallLocation{NamespaceSelector: namespaceselector, Ports: egress.Ports}, "ALLOW", counter}
 			firewallPolicy.Rules = append(firewallPolicy.Rules, egressRule)
 			counter++
-			RulePrinter(egressRule)
 		}
 	}
 }
 
+// PolicyRulesTranslator translate networkpolicy to FirewallPolicy with FirewallRules
 func PolicyRulesTranslator(policy netv1.NetworkPolicy) {
 	firewallPolicy = new(FirewallPolicy)
 	firewallPolicy.Namespace = policy.ObjectMeta.Namespace
