@@ -10,7 +10,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	//	"k8s.io/apimachinery/pkg/labels"
 
-	client "github.com/yuvalk/NetworkSecurityManager/pkg/client"
+	client "github.com/openshift/network-security-manager/pkg/client"
 
 	"github.com/kataras/tablewriter"
 	"github.com/landoop/tableprinter"

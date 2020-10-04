@@ -1,4 +1,4 @@
-module github.com/yuvalk/NetworkSecurityManager
+module github.com/openshift/network-security-manager
 
 go 1.13
 
